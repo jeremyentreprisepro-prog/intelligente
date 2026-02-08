@@ -74,7 +74,7 @@ function SupabaseMap() {
         supabase.from(MAP_TABLE).upsert(
           { id: MAP_ID, document: doc, updated_at: new Date().toISOString(), updated_by_session: sessionId },
           { onConflict: "id" }
-        ).then(() => { saveTimeout.current = null; }).catch((e) => console.warn("Erreur sauvegarde Supabase:", e?.message ?? e));
+        ).then(() => { saveTimeout.current = null; }, (e) => console.warn("Erreur sauvegarde Supabase:", (e as Error)?.message ?? e));
       }, 800);
     }, { source: "user", scope: "document" });
 
