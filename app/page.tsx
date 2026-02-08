@@ -74,7 +74,7 @@ function SupabaseMap() {
         supabase.from(MAP_TABLE).upsert(
           { id: MAP_ID, document: doc, updated_at: new Date().toISOString(), updated_by_session: sessionId },
           { onConflict: "id" }
-        ).then(() => { saveTimeout.current = null; });
+        ).then(() => { saveTimeout.current = null; }).catch((e) => console.warn("Erreur sauvegarde Supabase:", e?.message ?? e));
       }, 800);
     }, { source: "user", scope: "document" });
 
@@ -86,13 +86,21 @@ function SupabaseMap() {
 
     const channel = supabase.channel("map-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: MAP_TABLE, filter: `id=eq.${MAP_ID}` }, (payload) => {
-        const row = payload.new as { document?: object; updated_by_session?: string } | undefined;
-        if (!row?.document || row.updated_by_session === sessionId) return;
-        isRemoteUpdate.current = true;
-        loadSnapshot(store, { document: row.document as TLStoreSnapshot });
-        requestAnimationFrame(() => { isRemoteUpdate.current = false; });
+        try {
+          const row = payload.new as { document?: object; updated_by_session?: string } | undefined;
+          if (!row?.document || row.updated_by_session === sessionId) return;
+          isRemoteUpdate.current = true;
+          loadSnapshot(store, { document: row.document as TLStoreSnapshot });
+          requestAnimationFrame(() => { isRemoteUpdate.current = false; });
+        } catch (e) {
+          console.warn("Erreur Realtime loadSnapshot:", e);
+        }
       })
-      .subscribe();
+      .subscribe((status, err) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.warn("Realtime non disponible (sync désactivé):", err?.message ?? status);
+        }
+      });
 
     return () => { supabase?.removeChannel(channel); };
   }, [store, sessionId]);
@@ -109,22 +117,16 @@ function SupabaseMap() {
 }
 
 export default function Home() {
-  if (!supabase) {
-    return (
-      <div style={{ position: "fixed", inset: 0 }}>
+  return (
+    <div style={{ position: "fixed", inset: 0 }}>
+      {supabase ? <SupabaseMap /> : (
         <Tldraw
           persistenceKey="map-intelligente"
           shapeUtils={shapeUtils}
           components={components}
           onMount={onMount}
         />
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ position: "fixed", inset: 0 }}>
-      <SupabaseMap />
+      )}
     </div>
   );
 }
