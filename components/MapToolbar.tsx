@@ -29,12 +29,14 @@ export function MapToolbar() {
   }, [fontCards]);
 
   const addGroupe = useCallback(() => {
-    const center = editor.getViewportPageBounds().center;
+    const viewport = editor.getViewportPageBounds();
+    const marginLeft = 120;
+    const marginTop = 120;
     editor.createShape({
       id: createShapeId(),
       type: "collapsible",
-      x: center.x - NODE_WIDTH / 2,
-      y: center.y - NODE_HEIGHT / 2,
+      x: viewport.x + marginLeft,
+      y: viewport.y + marginTop,
       props: {
         label: "Groupe",
         collapsed: false,
@@ -83,7 +85,7 @@ export function MapToolbar() {
       style={{
         position: "absolute",
         top: 12,
-        left: 220,
+        left: 300,
         zIndex: 400,
         display: "flex",
         gap: 8,
@@ -92,24 +94,6 @@ export function MapToolbar() {
         pointerEvents: "auto",
       }}
     >
-      <button
-        type="button"
-        onClick={addGroupe}
-        style={{
-          padding: "6px 12px",
-          fontSize: 12,
-          fontWeight: 500,
-          color: "var(--tl-color-text-1)",
-          background: "var(--tl-color-panel)",
-          border: "2px solid var(--tl-color-background)",
-          borderRadius: 6,
-          boxShadow: "var(--tl-shadow-1)",
-          cursor: "pointer",
-        }}
-        title="Ajouter un groupe"
-      >
-        + Groupe
-      </button>
       <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--tl-color-text-2)" }}>
         Groupes:
         <select
@@ -134,6 +118,24 @@ export function MapToolbar() {
           ))}
         </select>
       </label>
+      <button
+        type="button"
+        onClick={addGroupe}
+        style={{
+          padding: "6px 12px",
+          fontSize: 12,
+          fontWeight: 500,
+          color: "var(--tl-color-text-1)",
+          background: "var(--tl-color-panel)",
+          border: "2px solid var(--tl-color-background)",
+          borderRadius: 6,
+          boxShadow: "var(--tl-shadow-1)",
+          cursor: "pointer",
+        }}
+        title="Ajouter un groupe"
+      >
+        + Groupe
+      </button>
       <button
         type="button"
         onClick={unifyGroupSizes}

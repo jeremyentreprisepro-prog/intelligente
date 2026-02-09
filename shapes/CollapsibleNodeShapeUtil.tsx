@@ -16,6 +16,7 @@ import {
   useEditor,
 } from "tldraw";
 import { LINKCARD_COMPACT_SIZE, LINKCARD_HEIGHT, LINKCARD_WIDTH } from "./LinkCardShapeUtil";
+import { computeDagreLayout } from "@/lib/dagreLayout";
 import { useCallback, useRef, useState } from "react";
 
 const COLLAPSIBLE_TYPE = "collapsible" as const;
@@ -186,17 +187,26 @@ function performCollapse(editor: Editor, groupId: TLShapeId): void {
   nestedIds.forEach((id) => { const s = editor.getShape(id); if (s) editor.updateShape({ id: s.id, type: s.type, opacity: 0 }); });
   arrowsToGroups.forEach((a) => editor.updateShape({ id: a.id, type: a.type, opacity: 1 }));
 
-  let offset = 0;
+  const children = [
+    ...linkCards.map((lc) => ({ id: lc.id, width: LINKCARD_COMPACT_SIZE, height: LINKCARD_COMPACT_SIZE })),
+    ...childGroups.map((g) => ({ id: g.id, width: COLLAPSIBLE_COMPACT_SIZE, height: COLLAPSIBLE_COMPACT_SIZE })),
+  ];
+  const positions = computeDagreLayout(
+    groupId,
+    { x: parentBounds.x, y: parentBounds.y, w: parentBounds.w, h: parentBounds.h },
+    children
+  );
+
   linkCards.forEach((lc) => {
-    const newX = parentBounds.x + (parentBounds.w - LINKCARD_COMPACT_SIZE) / 2;
-    const newY = parentBounds.y - LINKCARD_COMPACT_SIZE - 12 - offset;
-    offset += LINKCARD_COMPACT_SIZE + 12;
+    const pos = positions[lc.id];
+    const newX = pos?.x ?? parentBounds.x + (parentBounds.w - LINKCARD_COMPACT_SIZE) / 2;
+    const newY = pos?.y ?? parentBounds.y - LINKCARD_COMPACT_SIZE - 12;
     editor.updateShape({ id: lc.id, type: "linkcard", x: newX, y: newY, props: { compact: true, w: LINKCARD_COMPACT_SIZE, h: LINKCARD_COMPACT_SIZE } });
   });
   childGroups.forEach((g) => {
-    const newX = parentBounds.x + (parentBounds.w - COLLAPSIBLE_COMPACT_SIZE) / 2;
-    const newY = parentBounds.y - COLLAPSIBLE_COMPACT_SIZE - 12 - offset;
-    offset += COLLAPSIBLE_COMPACT_SIZE + 12;
+    const pos = positions[g.id];
+    const newX = pos?.x ?? parentBounds.x + (parentBounds.w - COLLAPSIBLE_COMPACT_SIZE) / 2;
+    const newY = pos?.y ?? parentBounds.y - COLLAPSIBLE_COMPACT_SIZE - 12;
     editor.updateShape({ id: g.id, type: "collapsible", x: newX, y: newY, props: { compact: true, w: COLLAPSIBLE_COMPACT_SIZE, h: COLLAPSIBLE_COMPACT_SIZE } });
   });
 }
@@ -267,27 +277,20 @@ export class CollapsibleNodeShapeUtil extends BaseBoxShapeUtil<TLCollapsibleNode
 
 function CollapsibleNodeComponent({ shape }: { shape: TLCollapsibleNodeShape }) {
   const editor = useEditor();
-  const { label, collapsed, fontSize, imageUrl, compact } = shape.props;
+  const { label, collapsed, fontSize, compact } = shape.props;
   const [editing, setEditing] = useState(false);
   const [editLabel, setEditLabel] = useState(label);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fs = FONT_SIZES.includes(fontSize as FontSize) ? (fontSize as FontSize) : 16;
 
-  const addImage = useCallback((e: React.PointerEvent) => {
-    e.stopPropagation();
-    editor.markEventAsHandled(e);
-    const url = window.prompt("URL de l'image :", imageUrl || "");
-    if (url !== null) editor.updateShape({ id: shape.id, type: "collapsible", props: { imageUrl: url.trim() } });
-  }, [editor, shape.id, imageUrl]);
-
   const toggleCollapsed = useCallback(() => {
     const nextCollapsed = !collapsed;
     const { linkCards, childGroups, otherShapes, arrows } = getChildShapesAndArrows(editor, shape.id);
 
     if (nextCollapsed) {
-      const ancestorIds = getAncestorGroupIdsOrdered(editor, shape.id);
-      [...ancestorIds].reverse().forEach((aid) => performCollapse(editor, aid));
+      // Ne fermer que ce groupe : seuls ses enfants directs remontent vers lui.
+      // On ne collapse pas les ancêtres, sinon tout remonte vers la racine (AXEL).
       performCollapse(editor, shape.id);
     } else {
       editor.updateShape({ id: shape.id, type: "collapsible", props: { collapsed: false } });
@@ -351,85 +354,153 @@ function CollapsibleNodeComponent({ shape }: { shape: TLCollapsibleNodeShape }) 
     setTimeout(() => inputRef.current?.focus(), 0);
   }, [editor, label]);
 
+  // Style inspiré de dagre test/console.html : .node rect (stroke #333, fill #fff), .subgraph rect (stroke #333, fill #333 0.15)
+  const NODE_STROKE = "#333";
+  const NODE_FILL = "#fff";
+  const SUBGRAPH_FILL = "rgba(51, 51, 51, 0.12)";
+
   const compactStyle = compact ? {
     width: COLLAPSIBLE_COMPACT_SIZE,
     height: COLLAPSIBLE_COMPACT_SIZE,
-    padding: 9,
+    padding: 10,
     minHeight: "auto",
   } : {
     width: shape.props.w,
     height: shape.props.h,
-    padding: 16,
-    minHeight: 150,
+    padding: 0,
+    minHeight: 140,
+  };
+
+  const baseBox = {
+    display: "flex",
+    flexDirection: "column" as const,
+    alignItems: "stretch",
+    justifyContent: compact ? "center" : "flex-start",
+    borderRadius: 5,
+    border: `1px solid ${NODE_STROKE}`,
+    background: compact ? NODE_FILL : SUBGRAPH_FILL,
+    boxShadow: "none",
+    pointerEvents: "all" as const,
+    overflow: "hidden",
   };
 
   return (
     <HTMLContainer>
-      <div
-        style={{
-          ...compactStyle,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: compact ? "center" : "flex-start",
-          borderRadius: 8,
-          background: "var(--tl-color-panel)",
-          border: "2px solid var(--tl-color-background)",
-          boxShadow: "var(--tl-shadow-1)",
-          pointerEvents: "all",
-          overflow: "hidden",
-        }}
-      >
+      <div style={{ ...compactStyle, ...baseBox }}>
         {compact ? (
-          <>
-            {imageUrl ? (
-              <img src={imageUrl} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6 }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-            ) : (
-              <span style={{ fontSize: 18, fontWeight: 600, color: "var(--tl-color-text-1)" }}>{(label || "Groupe").slice(0, 4)}</span>
-            )}
-          </>
+          /* Cellule type .node : fond blanc, contour #333, padding 10, rx 5 (comme appendLabel) */
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              width: "100%",
+              height: "100%",
+            }}
+          >
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: NODE_STROKE,
+                textAlign: "center",
+                lineHeight: 1.2,
+              }}
+            >
+              {(label || "Groupe").slice(0, 2).toUpperCase()}
+            </span>
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                color: NODE_STROKE,
+                maxWidth: "100%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                padding: "0 2px",
+              }}
+            >
+              {label || "Groupe"}
+            </span>
+          </div>
         ) : (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, width: "100%", justifyContent: "center" }}>
+            {/* Bandeau type .node : fond blanc, contour en bas */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "10px 12px",
+                borderBottom: `1px solid ${NODE_STROKE}`,
+                background: NODE_FILL,
+                flexShrink: 0,
+              }}
+            >
               <button
                 type="button"
                 onPointerDown={(e) => { e.stopPropagation(); editor.markEventAsHandled(e); toggleCollapsed(); }}
-                style={{ width: 44, height: 44, padding: 0, border: "none", background: "var(--tl-color-muted-2)", borderRadius: 10, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}
-                title={collapsed ? "Ouvrir" : "Réduire"}
+                style={{
+                  width: 26,
+                  height: 26,
+                  padding: 0,
+                  border: `1px solid ${NODE_STROKE}`,
+                  background: NODE_FILL,
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  fontSize: 11,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  color: NODE_STROKE,
+                }}
+                title={collapsed ? "Ouvrir le groupe" : "Réduire le groupe"}
               >
                 {collapsed ? "▶" : "▼"}
               </button>
-              <button
-                type="button"
-                onPointerDown={addImage}
-                style={{ width: 44, height: 44, padding: 0, border: "none", background: "var(--tl-color-muted-2)", borderRadius: 10, cursor: "pointer", fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center" }}
-                title="Ajouter une photo"
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: fs,
+                  fontWeight: 600,
+                  color: NODE_STROKE,
+                  cursor: "text",
+                }}
+                onPointerDown={startEdit}
               >
-                🖼
-              </button>
-            </div>
-            {imageUrl && (
-              <div style={{ width: "100%", height: 90, marginBottom: 12, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
-                <img src={imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                {editing ? (
+                  <input
+                    ref={inputRef}
+                    value={editLabel}
+                    onChange={(e) => setEditLabel(e.target.value)}
+                    onBlur={() => save()}
+                    onKeyDown={(e) => { e.stopPropagation(); editor.markEventAsHandled(e); e.key === "Enter" && save(); }}
+                    onPointerDown={(e) => editor.markEventAsHandled(e)}
+                    style={{
+                      width: "100%",
+                      fontSize: fs,
+                      fontWeight: 600,
+                      color: NODE_STROKE,
+                      background: NODE_FILL,
+                      border: `1px solid ${NODE_STROKE}`,
+                      borderRadius: 4,
+                      padding: "4px 8px",
+                      outline: "none",
+                    }}
+                  />
+                ) : (
+                  <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: fs }}>
+                    {label || "Groupe"}
+                  </span>
+                )}
               </div>
-            )}
-            <div style={{ width: "100%", textAlign: "center", minHeight: 36, cursor: "text", flex: 1 }} onPointerDown={startEdit}>
-              {editing ? (
-                <input
-                  ref={inputRef}
-                  value={editLabel}
-                  onChange={(e) => setEditLabel(e.target.value)}
-                  onBlur={() => save()}
-                  onKeyDown={(e) => { e.stopPropagation(); editor.markEventAsHandled(e); e.key === "Enter" && save(); }}
-                  onPointerDown={(e) => editor.markEventAsHandled(e)}
-                  style={{ width: "100%", fontSize: fs, fontWeight: 600, color: "var(--tl-color-text-1)", background: "var(--tl-color-background)", border: "1px solid var(--tl-color-focus)", borderRadius: 4, padding: "4px 8px", outline: "none" }}
-                />
-              ) : (
-                <span style={{ fontSize: fs, fontWeight: 600, color: "var(--tl-color-text-1)" }}>
-                  {label || "Groupe"}
-                </span>
-              )}
             </div>
+            <div style={{ flex: 1, minHeight: 20 }} />
           </>
         )}
       </div>
