@@ -231,14 +231,18 @@ Remplace `TON_COMPTE` et `TON_REPO` par ton nom d’utilisateur GitHub et le nom
    - **Value** : la valeur (URL ou clé anon).
    - **Environments** : coche **Production**, **Preview**, **Development** (ou au minimum **Production**).
 
-Ajoute **deux** variables :
+Ajoute **trois** variables (ou deux si tu n’as pas encore de clé tldraw) :
 
 | Name | Value |
 |------|--------|
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://ton-projet.supabase.co` (ton URL Supabase) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` (ta clé anon Supabase) |
+| `NEXT_PUBLIC_TLDRAW_LICENSE_KEY` | ta clé de licence tldraw (voir ci‑dessous) |
 
-3. Clique sur **Add** après chaque ligne. Les deux doivent apparaître dans la liste.
+**Clé tldraw (obligatoire en production)**  
+En production, tldraw affiche un avertissement et peut bloquer si aucune licence n’est fournie. Tu peux obtenir une **licence d’essai gratuite (100 jours)** ici : **https://tldraw.dev/get-a-license/trial**. Une fois la clé reçue, ajoute-la dans Vercel comme variable `NEXT_PUBLIC_TLDRAW_LICENSE_KEY`.
+
+3. Clique sur **Add** après chaque ligne. Les variables doivent apparaître dans la liste.
 
 ### 3.4 Déployer
 

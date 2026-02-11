@@ -16,6 +16,8 @@ function generateSessionId() {
 
 const components = { InFrontOfTheCanvas: () => <MapToolbar /> };
 
+const tldrawLicenseKey = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_TLDRAW_LICENSE_KEY ?? "" : "";
+
 const onMount = (editor: Parameters<NonNullable<React.ComponentProps<typeof Tldraw>["onMount"]>>[0]) => {
   editor.registerExternalContentHandler("url", async (content) => {
     const point =
@@ -51,10 +53,14 @@ function SupabaseMap() {
           .single();
 
         if (!fetchError && data?.document && typeof data.document === "object") {
-          loadSnapshot(s, { document: data.document as TLStoreSnapshot });
+          try {
+            loadSnapshot(s, { document: data.document as TLStoreSnapshot });
+          } catch (loadErr) {
+            console.warn("Chargement du document ignoré (format invalide?):", loadErr);
+          }
         }
       } catch {
-        // document vide au démarrage
+        // document vide ou erreur réseau
       }
       setStore(s);
     })();
@@ -84,25 +90,32 @@ function SupabaseMap() {
   useEffect(() => {
     if (!store || !supabase) return;
 
-    const channel = supabase.channel("map-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: MAP_TABLE, filter: `id=eq.${MAP_ID}` }, (payload) => {
-        try {
-          const row = payload.new as { document?: object; updated_by_session?: string } | undefined;
-          if (!row?.document || row.updated_by_session === sessionId) return;
-          isRemoteUpdate.current = true;
-          loadSnapshot(store, { document: row.document as TLStoreSnapshot });
-          requestAnimationFrame(() => { isRemoteUpdate.current = false; });
-        } catch (e) {
-          console.warn("Erreur Realtime loadSnapshot:", e);
-        }
-      })
-      .subscribe((status, err) => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      channel = supabase.channel("map-changes")
+        .on("postgres_changes", { event: "*", schema: "public", table: MAP_TABLE, filter: `id=eq.${MAP_ID}` }, (payload) => {
+          try {
+            const row = payload.new as { document?: object; updated_by_session?: string } | undefined;
+            if (!row?.document || row.updated_by_session === sessionId) return;
+            isRemoteUpdate.current = true;
+            loadSnapshot(store, { document: row.document as TLStoreSnapshot });
+            requestAnimationFrame(() => { isRemoteUpdate.current = false; });
+          } catch (e) {
+            console.warn("Erreur Realtime loadSnapshot:", e);
+          }
+        });
+      channel.subscribe((status, err) => {
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           console.warn("Realtime non disponible (sync désactivé):", err?.message ?? status);
         }
       });
+    } catch (e) {
+      console.warn("Erreur initialisation Realtime:", e);
+    }
 
-    return () => { supabase?.removeChannel(channel); };
+    return () => {
+      if (channel) supabase?.removeChannel(channel);
+    };
   }, [store, sessionId]);
 
   if (!store) {
@@ -113,7 +126,7 @@ function SupabaseMap() {
     );
   }
 
-  return <Tldraw store={store} shapeUtils={_shapeUtils} components={components} onMount={onMount} />;
+  return <Tldraw store={store} shapeUtils={_shapeUtils} components={components} onMount={onMount} licenseKey={tldrawLicenseKey} />;
 }
 
 export default function Home() {
@@ -125,6 +138,7 @@ export default function Home() {
           shapeUtils={shapeUtils}
           components={components}
           onMount={onMount}
+          licenseKey={tldrawLicenseKey}
         />
       )}
     </div>
