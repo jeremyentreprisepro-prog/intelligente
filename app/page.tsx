@@ -7,6 +7,7 @@ import { LinkCardShapeUtil, createLinkCardShapePartial } from "@/shapes/LinkCard
 import { CollapsibleNodeShapeUtil } from "@/shapes/CollapsibleNodeShapeUtil";
 import { MapToolbar } from "@/components/MapToolbar";
 import { supabase, MAP_TABLE, MAP_ID } from "@/lib/supabase";
+import { decompressDocument, compressDocument, MAP_COMPRESS_THRESHOLD } from "@/lib/map-compress";
 
 const shapeUtils = [LinkCardShapeUtil, CollapsibleNodeShapeUtil];
 const allShapeUtils = [...defaultShapeUtils, ...shapeUtils];
@@ -65,20 +66,29 @@ function SupabaseMap() {
       try {
         const { data, error: fetchError } = await supabase!
           .from(MAP_TABLE)
-          .select("document, updated_at")
+          .select("document, document_compressed, updated_at")
           .eq("id", MAP_ID)
           .single();
 
         if (cancelled) return;
         if (fetchError) {
           setLoadError(fetchError.message || "Erreur Supabase");
-        } else if (data?.document && typeof data.document === "object") {
+        } else if (data) {
           setLoadError(null);
-          const docStr = JSON.stringify(data.document);
-          if (docStr.length >= 300) {
+          let doc: object | null = null;
+          if (typeof data.document_compressed === "string" && data.document_compressed.length > 0) {
+            try {
+              doc = decompressDocument(data.document_compressed);
+            } catch (e) {
+              console.warn("Décompression document_compressed:", e);
+            }
+          } else if (data.document && typeof data.document === "object") {
+            doc = data.document as object;
+          }
+          if (doc && JSON.stringify(doc).length >= 300) {
             try {
               isRemoteUpdate.current = true;
-              loadSnapshot(s, { document: data.document as TLStoreSnapshot });
+              loadSnapshot(s, { document: doc as TLStoreSnapshot });
             } catch (loadErr) {
               console.warn("Chargement du document ignoré (format invalide?):", loadErr);
               setLoadError("Format du document invalide");
@@ -114,10 +124,11 @@ function SupabaseMap() {
       const docStr = JSON.stringify(doc);
       if (docStr.length < 300) return;
       const updatedAt = new Date().toISOString();
-      supabase.from(MAP_TABLE).upsert(
-        { id: MAP_ID, document: doc, updated_at: updatedAt, updated_by_session: sessionId },
-        { onConflict: "id" }
-      ).then(
+      const payload =
+        docStr.length > MAP_COMPRESS_THRESHOLD
+          ? { id: MAP_ID, document: {}, document_compressed: compressDocument(doc), updated_at: updatedAt, updated_by_session: sessionId }
+          : { id: MAP_ID, document: doc, document_compressed: null, updated_at: updatedAt, updated_by_session: sessionId };
+      supabase.from(MAP_TABLE).upsert(payload, { onConflict: "id" }).then(
         () => {
           saveTimeout.current = null;
           setSaveError(null);
@@ -159,13 +170,23 @@ function SupabaseMap() {
       channel = supabase.channel("map-changes")
         .on("postgres_changes", { event: "*", schema: "public", table: MAP_TABLE, filter: `id=eq.${MAP_ID}` }, (payload) => {
           try {
-            const row = payload.new as { document?: object; updated_at?: string; updated_by_session?: string } | undefined;
-            if (!row?.document || row.updated_by_session === sessionId) return;
-            if (!isNewer(lastKnownUpdatedAt.current, row.updated_at)) return;
-            if (JSON.stringify(row.document).length < 300) return;
-            lastKnownUpdatedAt.current = row.updated_at ?? null;
+            const row = payload.new as { document?: object; document_compressed?: string; updated_at?: string; updated_by_session?: string } | undefined;
+            if (row?.updated_by_session === sessionId) return;
+            if (!isNewer(lastKnownUpdatedAt.current, row?.updated_at)) return;
+            let doc: object | null = null;
+            if (typeof row?.document_compressed === "string" && row.document_compressed.length > 0) {
+              try {
+                doc = decompressDocument(row.document_compressed);
+              } catch {
+                return;
+              }
+            } else if (row?.document && typeof row.document === "object") {
+              doc = row.document;
+            }
+            if (!doc || JSON.stringify(doc).length < 300) return;
+            lastKnownUpdatedAt.current = row?.updated_at ?? null;
             isRemoteUpdate.current = true;
-            loadSnapshot(store, { document: row.document as TLStoreSnapshot });
+            loadSnapshot(store, { document: doc as TLStoreSnapshot });
             requestAnimationFrame(() => { isRemoteUpdate.current = false; });
           } catch (e) {
             console.warn("Erreur Realtime loadSnapshot:", e);

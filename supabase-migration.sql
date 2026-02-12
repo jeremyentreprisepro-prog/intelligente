@@ -1,8 +1,12 @@
 -- À exécuter dans le SQL Editor de Supabase (supabase.com → votre projet → SQL Editor)
 
+-- Si la table maps existe déjà, ajouter la colonne pour les gros documents :
+-- ALTER TABLE public.maps ADD COLUMN IF NOT EXISTS document_compressed TEXT;
+
 CREATE TABLE IF NOT EXISTS public.maps (
   id TEXT PRIMARY KEY,
   document JSONB NOT NULL DEFAULT '{}',
+  document_compressed TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_by_session TEXT
 );
