@@ -108,7 +108,8 @@ async function fetchAccountAllowedPaths(accountId: string): Promise<string[] | n
 async function userCanAccess(pathname: string, accountId?: string): Promise<boolean> {
   if (accountId) {
     const accountPaths = await fetchAccountAllowedPaths(accountId);
-    if (accountPaths !== null) return accountPaths.some((p) => pathMatches(pathname, p));
+    if (accountPaths === null) return false;
+    return accountPaths.some((p) => pathMatches(pathname, p));
   }
   const allowed = await getUserAllowedPaths();
   return allowed.some((p) => pathMatches(pathname, p));
@@ -116,6 +117,14 @@ async function userCanAccess(pathname: string, accountId?: string): Promise<bool
 
 function isAdminOnlyPath(pathname: string): boolean {
   return ADMIN_ONLY_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
+/** Base64url → binaire pour atob (ajoute le padding si besoin). */
+function base64UrlDecode(str: string): string {
+  let b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64.length % 4;
+  if (pad) b64 += "=".repeat(4 - pad);
+  return atob(b64);
 }
 
 /** Vérifie le cookie signé (Edge: Web Crypto). Retourne role et optionnellement accountId (user compte). */
@@ -127,7 +136,7 @@ async function verifyAuthCookie(value: string): Promise<{ role: string; accountI
   const [payloadB64, sigB64] = parts;
   let payload: string;
   try {
-    payload = atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/"));
+    payload = base64UrlDecode(payloadB64);
   } catch {
     return null;
   }
@@ -144,8 +153,8 @@ async function verifyAuthCookie(value: string): Promise<{ role: string; accountI
     ["sign"]
   );
   const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
-  const sigBase64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  if (sigBase64 !== sigB64) return null;
+  const sigB64FromUs = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  if (sigB64FromUs !== sigB64) return null;
   if (payloadParts.length === 3 && payloadParts[0] === "user") {
     return { role: "user", accountId: payloadParts[1] };
   }
@@ -173,6 +182,9 @@ export async function updateSession(request: NextRequest) {
         redirectUrl.searchParams.set("returnUrl", pathname);
         redirectUrl.searchParams.set("forbidden", "1");
         return NextResponse.redirect(redirectUrl);
+      }
+      if (parsed.role === "user" && parsed.accountId) {
+        return NextResponse.next({ request });
       }
       if (parsed.role === "user" && (await userCanAccess(pathname, parsed.accountId))) return NextResponse.next({ request });
       if (parsed.role === "user") {

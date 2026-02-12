@@ -63,8 +63,11 @@ export default function AdminPage() {
       <h1 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 600 }}>
         Comptes et accès
       </h1>
-      <p style={{ margin: "0 0 24px", color: "#666", fontSize: 14 }}>
-        Chaque compte (identifiant + mot de passe) peut avoir accès à des pages différentes. Modifie la liste des pages autorisées pour chaque compte.
+      <p style={{ margin: "0 0 8px", color: "#666", fontSize: 14 }}>
+        Chaque compte (identifiant + mot de passe) peut avoir accès à des <strong>pages complètes</strong> différentes dans la carte. Liste ici les <strong>noms des pages tldraw</strong> (ex. Page 1, Page 2) que ce compte a le droit d’ouvrir.
+      </p>
+      <p style={{ margin: "0 0 24px", color: "#888", fontSize: 13 }}>
+        Saisis les noms exactement comme dans le menu « Pages » de la carte (ex. <code style={{ background: "#eee", padding: "2px 6px", borderRadius: 4 }}>Page 1</code>, <code style={{ background: "#eee", padding: "2px 6px", borderRadius: 4 }}>Page 2</code>). Le compte ne pourra voir que ces pages.
       </p>
 
       {error && (
@@ -149,7 +152,7 @@ function AccountCard({
           value={newPath}
           onChange={(e) => setNewPath(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPath())}
-          placeholder="Ex: / ou /carte"
+          placeholder="Ex: Page 1, Page 2"
           style={{
             flex: 1,
             padding: "8px 12px",

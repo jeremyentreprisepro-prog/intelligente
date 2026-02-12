@@ -34,6 +34,8 @@ Chaque compte a sa propre liste de pages autorisées. Tu peux donner à un compt
 
 **Optionnel :** `MAP_AUTH_SECRET` — secret pour signer le cookie.
 
+**Important (connexion par compte en production) :** Pour que la connexion avec identifiant + mot de passe fonctionne sur Vercel, **au moins une** des variables `MAP_PASSWORD_ADMIN` ou `MAP_AUTH_SECRET` doit être définie. Elles servent à signer et vérifier le cookie d’authentification (y compris dans le middleware Edge). Sans cela, après un login réussi le cookie n’est pas reconnu et l’utilisateur est renvoyé sur la page de connexion.
+
 ---
 
 ## Supabase

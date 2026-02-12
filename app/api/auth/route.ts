@@ -26,7 +26,7 @@ export function hasAnyPassword(): boolean {
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const login = typeof body?.login === "string" ? body.login.trim().toLowerCase() : "";
-  const password = typeof body?.password === "string" ? body.password : "";
+  const password = typeof body?.password === "string" ? body.password.trim() : "";
   const adminPwd = getAdminPassword();
   const userPwd = getUserPassword();
   const legacyPwd = getLegacyPassword();
@@ -65,7 +65,10 @@ export async function POST(request: NextRequest) {
 
   const signed = createSignedAuthCookie(role, accountId);
   if (!signed) {
-    return NextResponse.json({ ok: false, error: "Non configuré" }, { status: 500 });
+    return NextResponse.json({
+      ok: false,
+      error: "Connexion désactivée : ajoute MAP_PASSWORD_ADMIN ou MAP_AUTH_SECRET dans les variables d’environnement (Vercel).",
+    }, { status: 500 });
   }
 
   const res = NextResponse.json({ ok: true, role });
