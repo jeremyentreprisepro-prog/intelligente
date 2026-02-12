@@ -152,6 +152,7 @@ function SupabaseMap() {
         payload.document = doc;
       }
       const runSave = (retryCount: number) => {
+        if (!supabase) return;
         supabase
           .from(MAP_TABLE)
           .upsert(payload, { onConflict: "id" })
