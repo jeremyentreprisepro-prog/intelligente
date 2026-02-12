@@ -264,40 +264,27 @@ En production, tldraw affiche un avertissement et peut bloquer si aucune licence
 
 ---
 
-## Étape 4 — (Optionnel) Protéger l’accès par mot de passe
+## Étape 4 — (Optionnel) Protéger l’accès avec Google
 
-Si tu veux que seules les personnes qui connaissent un mot de passe puissent ouvrir la carte :
+L’accès à la carte peut être limité aux utilisateurs connectés avec un **compte Google** (Supabase Auth).
 
-### 4.1 Choisir un mot de passe
+- **Sans config Google** : si Supabase n’a pas le provider Google activé ou si les URLs de redirection ne sont pas configurées, les pages protégées restent accessibles à tous (comportement par défaut si la session ne peut pas être vérifiée).
+- **Avec config Google** : seuls les utilisateurs ayant cliqué sur « Continuer avec Google » et validé leur compte peuvent accéder aux pages protégées.
 
-Choisis un mot de passe que tu pourras communiquer à ton équipe de façon sécurisée (pas dans un email public, idéalement par un outil type 1Password / Bitwarden ou en direct).
+Guide détaillé : **[CONNEXION_GOOGLE.md](./CONNEXION_GOOGLE.md)** (config Google Cloud + Supabase, redirect URLs, etc.).
 
-### 4.2 Ajouter la variable en local
+En résumé :
+1. **Google Cloud Console** : créer des identifiants OAuth (Web), ajouter l’URL de callback Supabase dans « Authorized redirect URIs », noter Client ID et Secret.
+2. **Supabase** → Authentication → Providers → **Google** : activer, coller Client ID et Secret.
+3. **Supabase** → Authentication → URL Configuration : ajouter en **Redirect URLs** par ex. `http://localhost:3000/auth/callback` et `https://ton-domaine.vercel.app/auth/callback`.
 
-1. Ouvre **`.env.local`**.
-2. Ajoute une **troisième ligne** :
+### Protéger uniquement certaines pages
 
-```env
-MAP_PASSWORD=le_mot_de_passe_que_tu_as_choisi
+Les routes protégées sont définies dans **`lib/supabase/middleware.ts`** (tableau `PROTECTED_PATHS`). Par défaut : `["/"]`. Pour ajouter d’autres chemins :
+
+```ts
+const PROTECTED_PATHS = ["/", "/admin", "/map"];
 ```
-
-3. Enregistre et redémarre `npm run dev` si besoin. En local, après avoir entré ce mot de passe une fois, l’accès est mémorisé (session).
-
-### 4.3 Ajouter la variable sur Vercel
-
-1. Va sur **vercel.com** → ton projet → **Settings** → **Environment Variables**.
-2. **Add New** :
-   - **Name** : `MAP_PASSWORD`
-   - **Value** : le même mot de passe que en local.
-   - **Environments** : Production (et Preview si tu veux la même chose pour les préviews).
-3. **Save**.
-4. Pour que la variable soit prise en compte sur le site déjà déployé : **Deployments** → sur le dernier déploiement, menu **⋯** → **Redeploy**. Attends la fin du déploiement.
-
-### 4.4 Vérifier
-
-Ouvre l’URL du site en navigation privée (ou déconnecte le stockage du site). Tu dois voir une page qui demande le mot de passe. Après l’avoir entré, tu accèdes à la carte.
-
-**Résumé étape 4 :** Seuls les utilisateurs qui ont le mot de passe peuvent ouvrir la carte.
 
 ---
 
@@ -306,19 +293,18 @@ Ouvre l’URL du site en navigation privée (ou déconnecte le stockage du site)
 ### 5.1 Ce qu’il faut leur envoyer
 
 - **L’URL du site** : celle affichée après le déploiement Vercel (ex. `https://map-intelligente-xxx.vercel.app`).
-- **Le mot de passe** (si tu as activé l’étape 4) : à transmettre de façon sécurisée.
+- Si l’accès est protégé par Google (étape 4), ils devront se connecter une fois avec leur compte Google.
 
 ### 5.2 Comment ils utilisent la carte
 
 1. Ils ouvrent l’URL dans leur navigateur.
-2. Si un mot de passe est demandé, ils l’entrent une fois (mémorisé pour la session).
+2. Si la connexion Google est activée, ils cliquent sur « Continuer avec Google » et se connectent (une fois par appareil/navigateur).
 3. Ils voient la **même carte** que toi. Les modifications (groupes, liens, déplacements) se **synchronisent en temps réel** pour tous ceux qui ont la page ouverte (grâce à Supabase Realtime).
 
 ### 5.3 Bonnes pratiques
 
-- Ne partage **pas** l’URL publique sur un endroit très visible (type réseau social) si la carte contient des infos sensibles ; le mot de passe limite l’accès mais l’URL reste connue.
-- Si quelqu’un perd l’accès : vérifie qu’il utilise la bonne URL et le bon mot de passe (si activé).
-- Pour changer le mot de passe : modifie `MAP_PASSWORD` sur Vercel, redéploie, et communique le nouveau mot de passe à l’équipe.
+- Ne partage **pas** l’URL publique sur un endroit très visible (type réseau social) si la carte contient des infos sensibles.
+- Pour se déconnecter : lien « Déconnexion » dans la barre d’outils de la carte.
 
 **Résumé étape 5 :** L’équipe a l’URL (et le mot de passe si besoin) et travaille ensemble sur la même carte en temps réel.
 
@@ -331,7 +317,7 @@ Ouvre l’URL du site en navigation privée (ou déconnecte le stockage du site)
 | 1 | Supabase | Compte → Nouveau projet → Noter URL + clé anon → SQL Editor : créer la table `maps` |
 | 2 | Projet local | Créer `.env.local` avec URL + clé → Redémarrer `npm run dev` → Tester en créant un groupe et en ouvrant un 2e onglet |
 | 3 | Vercel | Importer le repo GitHub → Ajouter les 2 variables d’env → Deploy → Vérifier l’URL |
-| 4 | Optionnel | Ajouter `MAP_PASSWORD` en local et sur Vercel → Redéployer si besoin |
+| 4 | Optionnel | Configurer la connexion Google : voir [CONNEXION_GOOGLE.md](./CONNEXION_GOOGLE.md) |
 | 5 | Équipe | Partager l’URL Vercel (+ mot de passe si configuré) |
 
 ---
@@ -347,7 +333,7 @@ Ouvre l’URL du site en navigation privée (ou déconnecte le stockage du site)
 - **La table n’existe pas**  
   Rejoue le SQL de l’étape 1.4 dans Supabase (SQL Editor). Vérifie dans Table Editor que la table `maps` est bien là.
 
-- **Le mot de passe ne marche pas**  
-  Vérifie qu’il n’y a pas d’espace avant/après dans la valeur de `MAP_PASSWORD` sur Vercel, et que tu as bien redéployé après l’ajout.
+- **La connexion Google ne marche pas**  
+  Vérifie les Redirect URLs dans Supabase (Authentication → URL Configuration) : `http://localhost:3000/auth/callback` et l’URL de prod `/auth/callback`. Vérifie aussi que le provider Google est activé avec le bon Client ID et Secret (voir [CONNEXION_GOOGLE.md](./CONNEXION_GOOGLE.md)).
 
 Si tu suis chaque étape dans l’ordre, tu obtiens une carte en ligne partagée en temps réel pour toute ton équipe.

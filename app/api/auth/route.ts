@@ -38,11 +38,10 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const expected = getExpectedPassword();
-  if (!expected) {
-    return NextResponse.json({ ok: true }); // pas de mdp configuré = accès libre
-  }
-
   const token = request.cookies.get(COOKIE_NAME)?.value;
   const ok = !!token;
-  return NextResponse.json({ ok });
+  return NextResponse.json({
+    ok: !expected ? true : ok,
+    usePassword: !!expected,
+  });
 }

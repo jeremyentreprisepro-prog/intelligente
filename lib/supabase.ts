@@ -1,9 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient as createBrowserClient } from "./supabase/client";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-
-export const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
-
+/** Client Supabase pour le navigateur (carte + auth). Utilise les cookies pour la session. */
+export const supabase = createBrowserClient();
 export const MAP_TABLE = "maps";
 export const MAP_ID = "map-intelligente";

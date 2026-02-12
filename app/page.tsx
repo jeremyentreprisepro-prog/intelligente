@@ -9,6 +9,7 @@ import { MapToolbar } from "@/components/MapToolbar";
 import { supabase, MAP_TABLE, MAP_ID } from "@/lib/supabase";
 
 const shapeUtils = [LinkCardShapeUtil, CollapsibleNodeShapeUtil];
+const allShapeUtils = [...defaultShapeUtils, ...shapeUtils];
 
 function generateSessionId() {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -135,7 +136,7 @@ export default function Home() {
       {supabase ? <SupabaseMap /> : (
         <Tldraw
           persistenceKey="map-intelligente"
-          shapeUtils={shapeUtils}
+          shapeUtils={allShapeUtils}
           components={components}
           onMount={onMount}
           licenseKey={tldrawLicenseKey}

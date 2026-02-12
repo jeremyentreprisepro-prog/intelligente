@@ -152,6 +152,13 @@ export function MapToolbar() {
       >
         📐 Cartes
       </button>
+      <a
+        href="/api/auth/logout"
+        style={{ padding: "6px 10px", fontSize: 11, color: "var(--tl-color-text-2)", textDecoration: "none" }}
+        title="Se déconnecter"
+      >
+        Déconnexion
+      </a>
     </div>
   );
 }
