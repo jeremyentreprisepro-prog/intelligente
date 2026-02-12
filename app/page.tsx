@@ -54,12 +54,10 @@ function SupabaseMap() {
   const lastKnownUpdatedAt = useRef<string | null>(null);
   const [store, setStore] = useState<ReturnType<typeof createTLStore> | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [dataLoaded, setDataLoaded] = useState(false);
   const _shapeUtils = useMemo(() => [...defaultShapeUtils, ...shapeUtils], []);
 
   useEffect(() => {
     const s = createTLStore({ shapeUtils: _shapeUtils });
-    setStore(s);
 
     let cancelled = false;
     (async () => {
@@ -87,7 +85,7 @@ function SupabaseMap() {
       }
       if (!cancelled) {
         initialLoadDone.current = true;
-        setDataLoaded(true);
+        setStore(s);
       }
     })();
 
@@ -176,29 +174,7 @@ function SupabaseMap() {
     );
   }
 
-  return (
-    <>
-      {!dataLoaded && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 9999,
-            padding: "8px 16px",
-            background: "var(--tl-color-selected)",
-            color: "var(--tl-color-selected-contrast)",
-            fontSize: 13,
-            textAlign: "center",
-          }}
-        >
-          Chargement de la carte…
-        </div>
-      )}
-      <Tldraw store={store} shapeUtils={_shapeUtils} components={components} onMount={onMount} licenseKey={tldrawLicenseKey} />
-    </>
-  );
+  return <Tldraw store={store} shapeUtils={_shapeUtils} components={components} onMount={onMount} licenseKey={tldrawLicenseKey} />;
 }
 
 export default function Home() {
