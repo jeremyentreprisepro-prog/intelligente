@@ -280,14 +280,14 @@ En résumé :
 
 ### Mot de passe Admin vs User (accès limité par page)
 
-Tu peux définir **deux mots de passe** : admin (accès à tout) et user (accès limité à certaines pages). Voir **[ADMIN_ET_USER.md](./ADMIN_ET_USER.md)** pour les variables `MAP_PASSWORD_ADMIN`, `MAP_PASSWORD_USER` et `MAP_USER_PAGES`.
+Tu peux définir **un mot de passe** (`MAP_PASSWORD`) pour protéger l’accès à la carte. Voir **[ADMIN_ET_USER.md](./ADMIN_ET_USER.md)**.
 
 ### Protéger uniquement certaines pages (liste des routes)
 
 Les routes protégées sont définies dans **`lib/supabase/middleware.ts`** (tableau `PROTECTED_PATHS`). Par défaut : `["/"]`. Pour ajouter d’autres chemins :
 
 ```ts
-const PROTECTED_PATHS = ["/", "/admin", "/map"];
+const PROTECTED_PATHS = ["/"];
 ```
 
 ---

@@ -21,33 +21,6 @@ const tldrawLicenseKey = typeof process !== "undefined" ? process.env.NEXT_PUBLI
 
 type Editor = Parameters<NonNullable<React.ComponentProps<typeof Tldraw>["onMount"]>>[0];
 
-function applyPageRestriction(editor: Editor, allowedNames: string[]) {
-  if (allowedNames.length === 0) return () => {};
-  const store = editor.store;
-  const getPages = () => (store.allRecords() as { typeName: string; id: string; name?: string }[]).filter((r) => r.typeName === "page");
-  const getAllowedIds = () => {
-    const pages = getPages();
-    return new Set(pages.filter((p) => allowedNames.includes(p.name ?? "")).map((p) => p.id));
-  };
-  const ensureCurrentPageAllowed = () => {
-    const allowedIds = getAllowedIds();
-    if (allowedIds.size === 0) return;
-    const currentId = editor.getInstanceState().currentPageId;
-    if (currentId && !allowedIds.has(currentId)) {
-      const firstId = allowedIds.values().next().value;
-      if (firstId) editor.setCurrentPage(firstId as Parameters<Editor["setCurrentPage"]>[0]);
-    }
-  };
-  ensureCurrentPageAllowed();
-  const unsubscribe = store.listen(
-    () => {
-      ensureCurrentPageAllowed();
-    },
-    { scope: "session" }
-  );
-  return unsubscribe;
-}
-
 const onMount = (editor: Editor) => {
   editor.registerExternalContentHandler("url", async (content) => {
     const point =
@@ -61,23 +34,6 @@ const onMount = (editor: Editor) => {
       editor.createShape(partial).select(partial.id);
     }
   });
-
-  fetch("/api/account/allowed-pages")
-    .then((r) => (r.ok ? r.json() : null))
-    .then((data: { allowedPages?: string[] } | null) => {
-      const allowed = data?.allowedPages;
-      if (Array.isArray(allowed) && allowed.length > 0) {
-        const cleanup = applyPageRestriction(editor, allowed);
-        return () => {
-          try {
-            cleanup();
-          } catch {
-            // ignore
-          }
-        };
-      }
-    })
-    .catch(() => {});
 };
 
 /** Mode Supabase : carte partagée en temps réel */
