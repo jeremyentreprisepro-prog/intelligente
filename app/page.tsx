@@ -54,6 +54,7 @@ function SupabaseMap() {
   const lastKnownUpdatedAt = useRef<string | null>(null);
   const [store, setStore] = useState<ReturnType<typeof createTLStore> | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const _shapeUtils = useMemo(() => [...defaultShapeUtils, ...shapeUtils], []);
 
   useEffect(() => {
@@ -69,19 +70,26 @@ function SupabaseMap() {
           .single();
 
         if (cancelled) return;
-        if (!fetchError && data?.document && typeof data.document === "object") {
-          try {
-            isRemoteUpdate.current = true;
-            loadSnapshot(s, { document: data.document as TLStoreSnapshot });
-            if (data.updated_at) lastKnownUpdatedAt.current = data.updated_at;
-          } catch (loadErr) {
-            console.warn("Chargement du document ignoré (format invalide?):", loadErr);
-          } finally {
-            isRemoteUpdate.current = false;
+        if (fetchError) {
+          setLoadError(fetchError.message || "Erreur Supabase");
+        } else if (data?.document && typeof data.document === "object") {
+          setLoadError(null);
+          const docStr = JSON.stringify(data.document);
+          if (docStr.length >= 300) {
+            try {
+              isRemoteUpdate.current = true;
+              loadSnapshot(s, { document: data.document as TLStoreSnapshot });
+            } catch (loadErr) {
+              console.warn("Chargement du document ignoré (format invalide?):", loadErr);
+              setLoadError("Format du document invalide");
+            } finally {
+              isRemoteUpdate.current = false;
+            }
           }
+          if (data.updated_at) lastKnownUpdatedAt.current = data.updated_at;
         }
-      } catch {
-        // ignore
+      } catch (e) {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : "Erreur réseau");
       }
       if (!cancelled) {
         initialLoadDone.current = true;
@@ -105,10 +113,18 @@ function SupabaseMap() {
       const { document: doc } = getSnapshot(store);
       const docStr = JSON.stringify(doc);
       if (docStr.length < 300) return;
+      const updatedAt = new Date().toISOString();
       supabase.from(MAP_TABLE).upsert(
-        { id: MAP_ID, document: doc, updated_at: new Date().toISOString(), updated_by_session: sessionId },
+        { id: MAP_ID, document: doc, updated_at: updatedAt, updated_by_session: sessionId },
         { onConflict: "id" }
-      ).then(() => { saveTimeout.current = null; setSaveError(null); }, (e) => setSaveError((e as Error)?.message ?? "Erreur sauvegarde"));
+      ).then(
+        () => {
+          saveTimeout.current = null;
+          setSaveError(null);
+          lastKnownUpdatedAt.current = updatedAt;
+        },
+        (e) => setSaveError((e as Error)?.message ?? "Erreur sauvegarde")
+      );
     };
 
     const unsubscribe = store.listen(() => {
@@ -143,8 +159,11 @@ function SupabaseMap() {
       channel = supabase.channel("map-changes")
         .on("postgres_changes", { event: "*", schema: "public", table: MAP_TABLE, filter: `id=eq.${MAP_ID}` }, (payload) => {
           try {
-            const row = payload.new as { document?: object; updated_by_session?: string } | undefined;
+            const row = payload.new as { document?: object; updated_at?: string; updated_by_session?: string } | undefined;
             if (!row?.document || row.updated_by_session === sessionId) return;
+            if (!isNewer(lastKnownUpdatedAt.current, row.updated_at)) return;
+            if (JSON.stringify(row.document).length < 300) return;
+            lastKnownUpdatedAt.current = row.updated_at ?? null;
             isRemoteUpdate.current = true;
             loadSnapshot(store, { document: row.document as TLStoreSnapshot });
             requestAnimationFrame(() => { isRemoteUpdate.current = false; });
@@ -174,7 +193,30 @@ function SupabaseMap() {
     );
   }
 
-  return <Tldraw store={store} shapeUtils={_shapeUtils} components={components} onMount={onMount} licenseKey={tldrawLicenseKey} />;
+  return (
+    <>
+      {(loadError || saveError) && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            padding: "8px 16px",
+            background: "#b91c1c",
+            color: "#fff",
+            fontSize: 13,
+            textAlign: "center",
+          }}
+        >
+          {loadError && `Chargement : ${loadError}. Restaure depuis un fichier.`}
+          {saveError && !loadError && `Sauvegarde : ${saveError}`}
+        </div>
+      )}
+      <Tldraw store={store} shapeUtils={_shapeUtils} components={components} onMount={onMount} licenseKey={tldrawLicenseKey} />
+    </>
+  );
 }
 
 export default function Home() {
