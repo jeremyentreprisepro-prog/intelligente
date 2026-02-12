@@ -278,7 +278,11 @@ En résumé :
 2. **Supabase** → Authentication → Providers → **Google** : activer, coller Client ID et Secret.
 3. **Supabase** → Authentication → URL Configuration : ajouter en **Redirect URLs** par ex. `http://localhost:3000/auth/callback` et `https://ton-domaine.vercel.app/auth/callback`.
 
-### Protéger uniquement certaines pages
+### Mot de passe Admin vs User (accès limité par page)
+
+Tu peux définir **deux mots de passe** : admin (accès à tout) et user (accès limité à certaines pages). Voir **[ADMIN_ET_USER.md](./ADMIN_ET_USER.md)** pour les variables `MAP_PASSWORD_ADMIN`, `MAP_PASSWORD_USER` et `MAP_USER_PAGES`.
+
+### Protéger uniquement certaines pages (liste des routes)
 
 Les routes protégées sont définies dans **`lib/supabase/middleware.ts`** (tableau `PROTECTED_PATHS`). Par défaut : `["/"]`. Pour ajouter d’autres chemins :
 

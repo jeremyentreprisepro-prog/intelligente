@@ -1,32 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createSignedAuthCookie, AUTH_COOKIE_MAX_AGE } from "@/lib/auth-cookie";
 
 const COOKIE_NAME = "map-auth";
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 7; // 7 jours
+const COOKIE_MAX_AGE = AUTH_COOKIE_MAX_AGE;
 
-function getExpectedPassword(): string {
+function getAdminPassword(): string {
+  return process.env.MAP_PASSWORD_ADMIN ?? "";
+}
+function getUserPassword(): string {
+  return process.env.MAP_PASSWORD_USER ?? "";
+}
+function getLegacyPassword(): string {
   return process.env.MAP_PASSWORD ?? "";
 }
 
-function hashPassword(pw: string): string {
-  return Buffer.from(pw).toString("base64");
+/** Utilisé pour usePassword (affichage du formulaire). */
+export function hasAnyPassword(): boolean {
+  return !!(getAdminPassword() || getUserPassword() || getLegacyPassword());
 }
 
 export async function POST(request: NextRequest) {
-  const expected = getExpectedPassword();
-  if (!expected) {
-    return NextResponse.json({ ok: false, error: "Non configuré" }, { status: 500 });
-  }
-
   const body = await request.json();
   const password = typeof body?.password === "string" ? body.password : "";
+  const adminPwd = getAdminPassword();
+  const userPwd = getUserPassword();
+  const legacyPwd = getLegacyPassword();
 
-  if (password !== expected) {
+  let role: "admin" | "user" = "admin";
+
+  if (adminPwd && password === adminPwd) {
+    role = "admin";
+  } else if (userPwd && password === userPwd) {
+    role = "user";
+  } else if (legacyPwd && password === legacyPwd) {
+    role = "admin";
+  } else {
     return NextResponse.json({ ok: false, error: "Mot de passe incorrect" }, { status: 401 });
   }
 
-  const token = hashPassword(password + Date.now());
-  const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE_NAME, token, {
+  const signed = createSignedAuthCookie(role);
+  if (!signed) {
+    return NextResponse.json({ ok: false, error: "Non configuré" }, { status: 500 });
+  }
+
+  const res = NextResponse.json({ ok: true, role });
+  res.cookies.set(COOKIE_NAME, signed, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -37,11 +55,10 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const expected = getExpectedPassword();
   const token = request.cookies.get(COOKIE_NAME)?.value;
   const ok = !!token;
   return NextResponse.json({
-    ok: !expected ? true : ok,
-    usePassword: !!expected,
+    ok: !hasAnyPassword() ? true : ok,
+    usePassword: hasAnyPassword(),
   });
 }

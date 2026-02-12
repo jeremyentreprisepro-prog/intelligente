@@ -19,6 +19,8 @@ function LoginForm() {
       .catch(() => setUsePassword(false));
   }, []);
 
+  const forbidden = searchParams.get("forbidden") === "1";
+
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -95,6 +97,11 @@ function LoginForm() {
         <h1 style={{ margin: 0, color: "#fff", fontSize: 20, fontWeight: 600 }}>
           Accès à la carte
         </h1>
+        {forbidden && (
+          <span style={{ color: "#fa0", fontSize: 14, textAlign: "center" }}>
+            Vous n’avez pas accès à cette page. Connectez-vous avec un compte autorisé.
+          </span>
+        )}
         {error && (
           <span style={{ color: "#f44", fontSize: 14, textAlign: "center" }}>
             {error}
