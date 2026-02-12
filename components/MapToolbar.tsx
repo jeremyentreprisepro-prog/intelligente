@@ -21,7 +21,19 @@ export function MapToolbar() {
   const [fontGroups, setFontGroups] = useState(() => getStored(STORAGE_GROUPS, 16));
   const [fontCards, setFontCards] = useState(() => getStored(STORAGE_CARDS, 16));
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const onSaved = (e: Event) => setSavedAt((e as CustomEvent<{ at: number }>).detail?.at ?? null);
+    window.addEventListener("map-saved", onSaved);
+    return () => window.removeEventListener("map-saved", onSaved);
+  }, []);
+
+  const saveNow = useCallback(() => {
+    setSavedAt(null);
+    window.dispatchEvent(new CustomEvent("map-save-now"));
+  }, []);
 
   useEffect(() => {
     try { window.localStorage?.setItem(STORAGE_GROUPS, String(fontGroups)); } catch {}
@@ -203,11 +215,19 @@ export function MapToolbar() {
       </button>
       <button
         type="button"
+        onClick={saveNow}
+        style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, color: "var(--tl-color-text-1)", background: "var(--tl-color-selected)", border: "2px solid var(--tl-color-background)", borderRadius: 6, boxShadow: "var(--tl-shadow-1)", cursor: "pointer" }}
+        title="Enregistrer la carte sur Supabase maintenant"
+      >
+        {savedAt ? `✓ Sauvegardé ${new Date(savedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "💾 Sauvegarder maintenant"}
+      </button>
+      <button
+        type="button"
         onClick={downloadBackup}
         style={{ padding: "6px 10px", fontSize: 11, fontWeight: 500, color: "var(--tl-color-text-1)", background: "var(--tl-color-panel)", border: "2px solid var(--tl-color-background)", borderRadius: 6, boxShadow: "var(--tl-shadow-1)", cursor: "pointer" }}
-        title="Télécharger une copie de la carte (sauvegarde locale)"
+        title="Télécharger une copie en fichier JSON (backup local)"
       >
-        💾 Sauvegarder une copie
+        📥 Télécharger une copie
       </button>
       <input
         ref={fileInputRef}

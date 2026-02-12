@@ -56,6 +56,7 @@ function SupabaseMap() {
   const [store, setStore] = useState<ReturnType<typeof createTLStore> | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const doSaveRef = useRef<(() => void) | null>(null);
   const _shapeUtils = useMemo(() => [...defaultShapeUtils, ...shapeUtils], []);
 
   useEffect(() => {
@@ -124,19 +125,40 @@ function SupabaseMap() {
       const docStr = JSON.stringify(doc);
       if (docStr.length < 300) return;
       const updatedAt = new Date().toISOString();
-      const payload =
-        docStr.length > MAP_COMPRESS_THRESHOLD
-          ? { id: MAP_ID, document: {}, document_compressed: compressDocument(doc), updated_at: updatedAt, updated_by_session: sessionId }
-          : { id: MAP_ID, document: doc, document_compressed: null, updated_at: updatedAt, updated_by_session: sessionId };
-      supabase.from(MAP_TABLE).upsert(payload, { onConflict: "id" }).then(
-        () => {
-          saveTimeout.current = null;
-          setSaveError(null);
-          lastKnownUpdatedAt.current = updatedAt;
-        },
-        (e) => setSaveError((e as Error)?.message ?? "Erreur sauvegarde")
-      );
+      const useCompressed = docStr.length > MAP_COMPRESS_THRESHOLD;
+      const payload: Record<string, unknown> = {
+        id: MAP_ID,
+        updated_at: updatedAt,
+        updated_by_session: sessionId,
+      };
+      if (useCompressed) {
+        payload.document = {};
+        payload.document_compressed = compressDocument(doc);
+      } else {
+        payload.document = doc;
+      }
+      supabase
+        .from(MAP_TABLE)
+        .upsert(payload, { onConflict: "id" })
+        .then(
+          () => {
+            saveTimeout.current = null;
+            setSaveError(null);
+            const at = Date.now();
+            lastKnownUpdatedAt.current = updatedAt;
+            window.dispatchEvent(new CustomEvent("map-saved", { detail: { at } }));
+          },
+          (e) => {
+            const msg = (e as Error)?.message ?? "Erreur sauvegarde";
+            setSaveError(msg);
+            console.error("Sauvegarde Supabase:", msg, e);
+          }
+        );
     };
+    doSaveRef.current = doSave;
+
+    const onSaveNow = () => doSaveRef.current?.();
+    window.addEventListener("map-save-now", onSaveNow);
 
     const unsubscribe = store.listen(() => {
       if (!initialLoadDone.current || isRemoteUpdate.current) return;
@@ -155,6 +177,8 @@ function SupabaseMap() {
     window.addEventListener("beforeunload", onBeforeUnload);
 
     return () => {
+      doSaveRef.current = null;
+      window.removeEventListener("map-save-now", onSaveNow);
       unsubscribe();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("beforeunload", onBeforeUnload);
