@@ -1,8 +1,8 @@
 "use client";
 
-import { createShapeId, useEditor } from "tldraw";
+import { createShapeId, useEditor, getSnapshot, loadSnapshot, type TLStoreSnapshot } from "tldraw";
 import { LINKCARD_WIDTH, LINKCARD_HEIGHT } from "@/shapes/LinkCardShapeUtil";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32] as const;
 const STORAGE_GROUPS = "map-font-groups";
@@ -20,6 +20,8 @@ export function MapToolbar() {
   const editor = useEditor();
   const [fontGroups, setFontGroups] = useState(() => getStored(STORAGE_GROUPS, 16));
   const [fontCards, setFontCards] = useState(() => getStored(STORAGE_CARDS, 16));
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     try { window.localStorage?.setItem(STORAGE_GROUPS, String(fontGroups)); } catch {}
@@ -79,6 +81,53 @@ export function MapToolbar() {
       editor.updateShapes(shapes.map((s) => ({ id: s.id, type: "linkcard" as const, props: { w: LINKCARD_WIDTH, h: LINKCARD_HEIGHT, compact: false } })));
     }
   }, [editor]);
+
+  const downloadBackup = useCallback(() => {
+    const snapshot = getSnapshot(editor.store);
+    const blob = new Blob([JSON.stringify({ document: snapshot.document }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `carte-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, [editor.store]);
+
+  const restoreFromFile = useCallback(() => {
+    setRestoreError(null);
+    fileInputRef.current?.click();
+  }, []);
+
+  const onRestoreFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      setRestoreError(null);
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text) as { document?: unknown };
+        const doc = data?.document;
+        if (!doc || typeof doc !== "object") {
+          setRestoreError("Fichier invalide (attendu: { document: ... })");
+          return;
+        }
+        loadSnapshot(editor.store, { document: doc as TLStoreSnapshot });
+        const res = await fetch("/api/map", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ document: doc }),
+        });
+        const result = await res.json();
+        if (!res.ok) {
+          setRestoreError(result?.error ?? "Erreur lors de l’envoi vers Supabase");
+          return;
+        }
+      } catch (err) {
+        setRestoreError(err instanceof Error ? err.message : "Fichier invalide");
+      }
+    },
+    [editor.store]
+  );
 
   return (
     <div
@@ -152,6 +201,32 @@ export function MapToolbar() {
       >
         📐 Cartes
       </button>
+      <button
+        type="button"
+        onClick={downloadBackup}
+        style={{ padding: "6px 10px", fontSize: 11, fontWeight: 500, color: "var(--tl-color-text-1)", background: "var(--tl-color-panel)", border: "2px solid var(--tl-color-background)", borderRadius: 6, boxShadow: "var(--tl-shadow-1)", cursor: "pointer" }}
+        title="Télécharger une copie de la carte (sauvegarde locale)"
+      >
+        💾 Sauvegarder une copie
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: "none" }}
+        onChange={onRestoreFile}
+      />
+      <button
+        type="button"
+        onClick={restoreFromFile}
+        style={{ padding: "6px 10px", fontSize: 11, fontWeight: 500, color: "var(--tl-color-text-1)", background: "var(--tl-color-panel)", border: "2px solid var(--tl-color-background)", borderRadius: 6, boxShadow: "var(--tl-shadow-1)", cursor: "pointer" }}
+        title="Restaurer la carte depuis un fichier backup .json"
+      >
+        📂 Restaurer depuis un fichier
+      </button>
+      {restoreError && (
+        <span style={{ fontSize: 11, color: "var(--tl-color-danger)" }}>{restoreError}</span>
+      )}
       <a
         href="/api/auth/logout"
         style={{ padding: "6px 10px", fontSize: 11, color: "var(--tl-color-text-2)", textDecoration: "none" }}
