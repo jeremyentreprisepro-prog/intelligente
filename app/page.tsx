@@ -59,32 +59,46 @@ function SupabaseMap() {
   const doSaveRef = useRef<(() => void) | null>(null);
   const _shapeUtils = useMemo(() => [...defaultShapeUtils, ...shapeUtils], []);
 
+  const LOAD_TIMEOUT_MS = 12000;
+
   useEffect(() => {
     const s = createTLStore({ shapeUtils: _shapeUtils });
 
     let cancelled = false;
     (async () => {
       try {
-        const { data, error: fetchError } = await supabase!
+        const fetchPromise = supabase!
           .from(MAP_TABLE)
           .select("document, document_compressed, updated_at")
           .eq("id", MAP_ID)
           .single();
 
+        const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: { message: "Chargement trop long (timeout). Utilise « Restaurer depuis un fichier » si tu as une sauvegarde." } }), LOAD_TIMEOUT_MS)
+        );
+
+        const result = await Promise.race([
+          fetchPromise.then((r) => ({ data: r.data, error: r.error })),
+          timeoutPromise,
+        ]);
+
         if (cancelled) return;
+        const { data, error: fetchError } = result;
+
         if (fetchError) {
           setLoadError(fetchError.message || "Erreur Supabase");
         } else if (data) {
           setLoadError(null);
+          const d = data as { document?: object; document_compressed?: string; updated_at?: string };
           let doc: object | null = null;
-          if (typeof data.document_compressed === "string" && data.document_compressed.length > 0) {
+          if (typeof d?.document_compressed === "string" && d.document_compressed.length > 0) {
             try {
-              doc = decompressDocument(data.document_compressed);
+              doc = decompressDocument(d.document_compressed);
             } catch (e) {
               console.warn("Décompression document_compressed:", e);
             }
-          } else if (data.document && typeof data.document === "object") {
-            doc = data.document as object;
+          } else if (d?.document && typeof d.document === "object") {
+            doc = d.document;
           }
           if (doc && JSON.stringify(doc).length >= 300) {
             try {
@@ -97,7 +111,7 @@ function SupabaseMap() {
               isRemoteUpdate.current = false;
             }
           }
-          if (data.updated_at) lastKnownUpdatedAt.current = data.updated_at;
+          if (d?.updated_at) lastKnownUpdatedAt.current = d.updated_at;
         }
       } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : "Erreur réseau");
@@ -137,23 +151,35 @@ function SupabaseMap() {
       } else {
         payload.document = doc;
       }
-      supabase
-        .from(MAP_TABLE)
-        .upsert(payload, { onConflict: "id" })
-        .then(
-          () => {
-            saveTimeout.current = null;
-            setSaveError(null);
-            const at = Date.now();
-            lastKnownUpdatedAt.current = updatedAt;
-            window.dispatchEvent(new CustomEvent("map-saved", { detail: { at } }));
-          },
-          (e) => {
-            const msg = (e as Error)?.message ?? "Erreur sauvegarde";
-            setSaveError(msg);
-            console.error("Sauvegarde Supabase:", msg, e);
-          }
-        );
+      const runSave = (retryCount: number) => {
+        supabase
+          .from(MAP_TABLE)
+          .upsert(payload, { onConflict: "id" })
+          .then(
+            () => {
+              saveTimeout.current = null;
+              setSaveError(null);
+              lastKnownUpdatedAt.current = updatedAt;
+              window.dispatchEvent(new CustomEvent("map-saved", { detail: { at: Date.now() } }));
+            },
+            (e) => {
+              const msg = (e as Error)?.message ?? "Erreur sauvegarde";
+              const isTimeout = /timeout|timed out/i.test(msg);
+              if (isTimeout && retryCount < 2) {
+                setTimeout(() => runSave(retryCount + 1), 2000);
+                setSaveError("Timeout Supabase, nouvelle tentative…");
+                return;
+              }
+              if (isTimeout) {
+                setSaveError("Timeout Supabase (document trop lourd). Exécute supabase-migration-timeout.sql dans Supabase → SQL Editor.");
+              } else {
+                setSaveError(msg);
+              }
+              console.error("Sauvegarde Supabase:", msg, e);
+            }
+          );
+      };
+      runSave(0);
     };
     doSaveRef.current = doSave;
 
