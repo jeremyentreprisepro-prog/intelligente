@@ -25,10 +25,14 @@ export function MapToolbar() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const onSaved = (e: Event) => setSavedAt((e as CustomEvent<{ at: number }>).detail?.at ?? null);
+    const onSaved = (e: Event) => {
+      const detail = (e as CustomEvent<{ at: number; manual?: boolean }>).detail;
+      if (detail?.at != null) setSavedAt(detail.at);
+      if (detail?.manual) downloadBackupFromEvent();
+    };
     window.addEventListener("map-saved", onSaved);
     return () => window.removeEventListener("map-saved", onSaved);
-  }, []);
+  }, [downloadBackupFromEvent]);
 
   const saveNow = useCallback(() => {
     setSavedAt(null);
@@ -102,6 +106,20 @@ export function MapToolbar() {
     a.download = `carte-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
+  }, [editor.store]);
+
+  const downloadBackupFromEvent = useCallback(() => {
+    try {
+      const snapshot = getSnapshot(editor.store);
+      const blob = new Blob([JSON.stringify({ document: snapshot.document }, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `carte-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      // ignore
+    }
   }, [editor.store]);
 
   const restoreFromFile = useCallback(() => {

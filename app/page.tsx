@@ -55,47 +55,37 @@ function SupabaseMap() {
   const lastKnownUpdatedAt = useRef<string | null>(null);
   const [store, setStore] = useState<ReturnType<typeof createTLStore> | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const doSaveRef = useRef<(() => void) | null>(null);
+  const saveWasManualRef = useRef(false);
   const _shapeUtils = useMemo(() => [...defaultShapeUtils, ...shapeUtils], []);
-
-  const LOAD_TIMEOUT_MS = 12000;
 
   useEffect(() => {
     const s = createTLStore({ shapeUtils: _shapeUtils });
+    setStore(s);
 
     let cancelled = false;
+    const enableSaves = () => {
+      if (!cancelled) initialLoadDone.current = true;
+    };
+    const safetyTimer = setTimeout(enableSaves, 3000);
+
     (async () => {
       try {
-        const fetchPromise = supabase!
+        const { data, error: fetchError } = await supabase!
           .from(MAP_TABLE)
           .select("document, document_compressed, updated_at")
           .eq("id", MAP_ID)
           .single();
 
-        const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
-          setTimeout(() => resolve({ data: null, error: { message: "Chargement trop long (timeout). Utilise « Restaurer depuis un fichier » si tu as une sauvegarde." } }), LOAD_TIMEOUT_MS)
-        );
-
-        const result = await Promise.race([
-          fetchPromise.then((r) => ({ data: r.data, error: r.error })),
-          timeoutPromise,
-        ]);
-
         if (cancelled) return;
-        const { data, error: fetchError } = result;
-
-        if (fetchError) {
-          setLoadError(fetchError.message || "Erreur Supabase");
-        } else if (data) {
-          setLoadError(null);
+        if (!fetchError && data) {
           const d = data as { document?: object; document_compressed?: string; updated_at?: string };
           let doc: object | null = null;
           if (typeof d?.document_compressed === "string" && d.document_compressed.length > 0) {
             try {
               doc = decompressDocument(d.document_compressed);
-            } catch (e) {
-              console.warn("Décompression document_compressed:", e);
+            } catch {
+              // ignore
             }
           } else if (d?.document && typeof d.document === "object") {
             doc = d.document;
@@ -104,25 +94,23 @@ function SupabaseMap() {
             try {
               isRemoteUpdate.current = true;
               loadSnapshot(s, { document: doc as TLStoreSnapshot });
-            } catch (loadErr) {
-              console.warn("Chargement du document ignoré (format invalide?):", loadErr);
-              setLoadError("Format du document invalide");
             } finally {
               isRemoteUpdate.current = false;
             }
           }
           if (d?.updated_at) lastKnownUpdatedAt.current = d.updated_at;
         }
-      } catch (e) {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : "Erreur réseau");
+      } catch {
+        // ignore
       }
-      if (!cancelled) {
-        initialLoadDone.current = true;
-        setStore(s);
-      }
+      enableSaves();
     })();
 
-    return () => { cancelled = true; if (saveTimeout.current) clearTimeout(saveTimeout.current); };
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+      if (saveTimeout.current) clearTimeout(saveTimeout.current);
+    };
   }, [_shapeUtils]);
 
   useEffect(() => {
@@ -161,7 +149,9 @@ function SupabaseMap() {
               saveTimeout.current = null;
               setSaveError(null);
               lastKnownUpdatedAt.current = updatedAt;
-              window.dispatchEvent(new CustomEvent("map-saved", { detail: { at: Date.now() } }));
+              const manual = saveWasManualRef.current;
+              saveWasManualRef.current = false;
+              window.dispatchEvent(new CustomEvent("map-saved", { detail: { at: Date.now(), manual } }));
             },
             (e) => {
               const msg = (e as Error)?.message ?? "Erreur sauvegarde";
@@ -184,7 +174,10 @@ function SupabaseMap() {
     };
     doSaveRef.current = doSave;
 
-    const onSaveNow = () => doSaveRef.current?.();
+    const onSaveNow = () => {
+      saveWasManualRef.current = true;
+      doSaveRef.current?.();
+    };
     window.addEventListener("map-save-now", onSaveNow);
 
     const unsubscribe = store.listen(() => {
@@ -265,30 +258,7 @@ function SupabaseMap() {
     );
   }
 
-  return (
-    <>
-      {(loadError || saveError) && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 9999,
-            padding: "8px 16px",
-            background: "#b91c1c",
-            color: "#fff",
-            fontSize: 13,
-            textAlign: "center",
-          }}
-        >
-          {loadError && `Chargement : ${loadError}. Restaure depuis un fichier.`}
-          {saveError && !loadError && `Sauvegarde : ${saveError}`}
-        </div>
-      )}
-      <Tldraw store={store} shapeUtils={_shapeUtils} components={components} onMount={onMount} licenseKey={tldrawLicenseKey} />
-    </>
-  );
+  return <Tldraw store={store} shapeUtils={_shapeUtils} components={components} onMount={onMount} licenseKey={tldrawLicenseKey} />;
 }
 
 export default function Home() {
