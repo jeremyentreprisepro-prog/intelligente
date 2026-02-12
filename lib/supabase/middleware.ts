@@ -1,14 +1,17 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PROTECTED_PATHS = ["/"];
+const PROTECTED_PATHS = ["/", "/admin"];
 const AUTH_COOKIE_NAME = "map-auth";
 const AUTH_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 7;
+/** Chemins réservés à l’admin (pas accessibles au rôle user). */
+const ADMIN_ONLY_PATHS = ["/admin"];
 
 function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith("/api")) return true;
   if (pathname.startsWith("/_next")) return true;
   if (pathname === "/login") return true;
+  if (pathname === "/signup") return true;
   if (pathname.startsWith("/auth")) return true;
   if (pathname === "/favicon.ico" || pathname.startsWith("/icons/") || pathname.endsWith(".svg")) return true;
   return false;
@@ -18,19 +21,105 @@ function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PATHS.some((p) => pathname === p || (p !== "/" && pathname.startsWith(p + "/")));
 }
 
-/** Pages que le rôle "user" peut accéder (env MAP_USER_PAGES, ex. "/,/carte"). */
-function getUserAllowedPaths(): string[] {
+/** Cache en mémoire (Edge) pour la liste des pages users, 60 s. */
+let cachedUserPages: { paths: string[]; t: number } | null = null;
+const CACHE_TTL_MS = 60_000;
+
+async function fetchUserAllowedPathsFromSupabase(): Promise<string[] | null> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  try {
+    const res = await fetch(
+      `${url}/rest/v1/app_config?key=eq.user_allowed_pages&select=value`,
+      {
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const row = Array.isArray(data) ? data[0] : null;
+    const value = row?.value;
+    if (typeof value === "string") {
+      const parsed = JSON.parse(value) as unknown;
+      if (Array.isArray(parsed)) return parsed.filter((p) => typeof p === "string");
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+async function getUserAllowedPaths(): Promise<string[]> {
+  const now = Date.now();
+  if (cachedUserPages && now - cachedUserPages.t < CACHE_TTL_MS) return cachedUserPages.paths;
+  const fromDb = await fetchUserAllowedPathsFromSupabase();
+  if (fromDb !== null && fromDb.length > 0) {
+    cachedUserPages = { paths: fromDb, t: now };
+    return fromDb;
+  }
   const raw = process.env.MAP_USER_PAGES ?? "/";
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-function userCanAccess(pathname: string): boolean {
-  const allowed = getUserAllowedPaths();
-  return allowed.some((p) => pathname === p || (p !== "/" && pathname.startsWith(p + "/")));
+function pathMatches(pathname: string, path: string): boolean {
+  return pathname === path || (path !== "/" && pathname.startsWith(path + "/"));
 }
 
-/** Vérifie le cookie signé (Edge: Web Crypto). */
-async function verifyAuthCookie(value: string): Promise<{ role: string } | null> {
+/** Cache allowed_pages par account_id (Edge), 60 s. */
+const accountPagesCache = new Map<string, { paths: string[]; t: number }>();
+
+async function fetchAccountAllowedPaths(accountId: string): Promise<string[] | null> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  const cached = accountPagesCache.get(accountId);
+  if (cached && Date.now() - cached.t < CACHE_TTL_MS) return cached.paths;
+  try {
+    const res = await fetch(
+      `${url}/rest/v1/accounts?id=eq.${encodeURIComponent(accountId)}&select=allowed_pages`,
+      {
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const row = Array.isArray(data) ? data[0] : null;
+    const value = row?.allowed_pages;
+    if (Array.isArray(value)) {
+      const paths = value.filter((p) => typeof p === "string");
+      accountPagesCache.set(accountId, { paths, t: Date.now() });
+      return paths;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+async function userCanAccess(pathname: string, accountId?: string): Promise<boolean> {
+  if (accountId) {
+    const accountPaths = await fetchAccountAllowedPaths(accountId);
+    if (accountPaths !== null) return accountPaths.some((p) => pathMatches(pathname, p));
+  }
+  const allowed = await getUserAllowedPaths();
+  return allowed.some((p) => pathMatches(pathname, p));
+}
+
+function isAdminOnlyPath(pathname: string): boolean {
+  return ADMIN_ONLY_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
+/** Vérifie le cookie signé (Edge: Web Crypto). Retourne role et optionnellement accountId (user compte). */
+async function verifyAuthCookie(value: string): Promise<{ role: string; accountId?: string } | null> {
   const secret = process.env.MAP_AUTH_SECRET || process.env.MAP_PASSWORD_ADMIN || process.env.MAP_PASSWORD_USER || process.env.MAP_PASSWORD;
   if (!secret || !value) return null;
   const parts = value.split(".");
@@ -42,7 +131,8 @@ async function verifyAuthCookie(value: string): Promise<{ role: string } | null>
   } catch {
     return null;
   }
-  const exp = parseInt(payload.split(":")[1], 10);
+  const payloadParts = payload.split(":");
+  const exp = parseInt(payloadParts[payloadParts.length - 1], 10);
   if (Number.isNaN(exp) || Date.now() > exp) return null;
 
   const encoder = new TextEncoder();
@@ -56,7 +146,10 @@ async function verifyAuthCookie(value: string): Promise<{ role: string } | null>
   const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
   const sigBase64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   if (sigBase64 !== sigB64) return null;
-  const role = payload.split(":")[0];
+  if (payloadParts.length === 3 && payloadParts[0] === "user") {
+    return { role: "user", accountId: payloadParts[1] };
+  }
+  const role = payloadParts[0];
   return role ? { role } : null;
 }
 
@@ -74,8 +167,15 @@ export async function updateSession(request: NextRequest) {
     const parsed = await verifyAuthCookie(authCookie);
     if (parsed) {
       if (parsed.role === "admin") return NextResponse.next({ request });
-      if (parsed.role === "user" && userCanAccess(pathname)) return NextResponse.next({ request });
-      if (parsed.role === "user" && !userCanAccess(pathname)) {
+      if (parsed.role === "user" && isAdminOnlyPath(pathname)) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = "/login";
+        redirectUrl.searchParams.set("returnUrl", pathname);
+        redirectUrl.searchParams.set("forbidden", "1");
+        return NextResponse.redirect(redirectUrl);
+      }
+      if (parsed.role === "user" && (await userCanAccess(pathname, parsed.accountId))) return NextResponse.next({ request });
+      if (parsed.role === "user") {
         const redirectUrl = request.nextUrl.clone();
         redirectUrl.pathname = "/login";
         redirectUrl.searchParams.set("returnUrl", pathname);

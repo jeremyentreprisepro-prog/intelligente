@@ -1,6 +1,26 @@
-# Accès Admin et User (deux mots de passe)
+# Comptes et accès (admin + users)
 
-Tu peux définir **deux mots de passe** : un pour l’**admin** (accès à tout) et un pour les **users** (accès limité à certaines pages). L’admin « donne » l’accès aux users en configurant les pages autorisées via une variable d’environnement.
+- **Admin** : mot de passe défini par `MAP_PASSWORD_ADMIN` → accès à tout, dont la page **Admin** pour gérer les comptes.
+- **Comptes** : une personne **crée un compte** (identifiant + mot de passe qu’elle choisit), puis **toi en admin** tu décides quelles pages ce compte peut voir.
+
+---
+
+## Côté utilisateur
+
+1. **Créer un compte** : aller sur **/signup**, choisir un **identifiant** (ex. `jean.dupont`) et un **mot de passe** (6 caractères min.).
+2. **Se connecter** : aller sur **/login**, saisir **identifiant + mot de passe** du compte → accès aux seules pages que l’admin a autorisées pour ce compte.
+
+---
+
+## Côté admin (toi)
+
+1. **Se connecter en admin** : sur **/login**, laisser l’identifiant vide et saisir le **mot de passe admin** (`MAP_PASSWORD_ADMIN`).
+2. **Gérer les comptes** : cliquer sur **Admin** dans la barre d’outils (ou ouvrir **/admin**). Tu vois la **liste des comptes** (identifiant, date de création). Pour chaque compte :
+   - **Ajouter** des chemins (ex. `/`, `/carte`) dans « Pages autorisées »,
+   - **Retirer** des chemins si besoin,
+   - Cliquer sur **Enregistrer pour ce compte**.
+
+Chaque compte a sa propre liste de pages autorisées. Tu peux donner à un compte uniquement `/`, à un autre `/` et `/carte`, etc.
 
 ---
 
@@ -8,38 +28,23 @@ Tu peux définir **deux mots de passe** : un pour l’**admin** (accès à tout)
 
 | Variable | Rôle |
 |----------|------|
-| **`MAP_PASSWORD_ADMIN`** | Mot de passe admin → accès à **toutes** les pages protégées. |
-| **`MAP_PASSWORD_USER`** | Mot de passe user → accès **uniquement** aux pages listées dans `MAP_USER_PAGES`. |
-| **`MAP_USER_PAGES`** | Liste des chemins que le rôle **user** peut ouvrir (séparés par des virgules). Ex. : `/,/carte,/view` |
+| **`MAP_PASSWORD_ADMIN`** | Mot de passe admin → accès à tout + page Admin. **Recommandé** pour gérer les comptes. |
+| **`MAP_PASSWORD_USER`** | (Optionnel) Mot de passe « user » global → accès aux pages listées dans `MAP_USER_PAGES` (ancien mode). |
+| **`MAP_USER_PAGES`** | (Optionnel) Liste des chemins pour le mot de passe user global (ex. `/,/carte`). |
 
-**Optionnel :** `MAP_AUTH_SECRET` — secret utilisé pour signer le cookie (par défaut on utilise `MAP_PASSWORD_ADMIN` ou `MAP_PASSWORD_USER`).
-
----
-
-## Comportement
-
-- **Connexion avec le mot de passe admin** → rôle **admin** → accès à toutes les pages.
-- **Connexion avec le mot de passe user** → rôle **user** → accès seulement aux chemins dans `MAP_USER_PAGES`.
-- Si un **user** tente d’ouvrir une page non autorisée → redirection vers `/login` avec un message « Vous n’avez pas accès à cette page ».
+**Optionnel :** `MAP_AUTH_SECRET` — secret pour signer le cookie.
 
 ---
 
-## Exemple de configuration (Vercel)
+## Supabase
 
-1. **Settings** → **Environment Variables** :
-   - `MAP_PASSWORD_ADMIN` = `MonMotDePasseAdmin123`
-   - `MAP_PASSWORD_USER` = `MotDePasseUser456`
-   - `MAP_USER_PAGES` = `/,/carte`
-2. **Redeploy** le projet.
-
-Résultat : l’admin peut tout voir ; les users qui se connectent avec le second mot de passe ne peuvent aller que sur `/` et `/carte` (et leurs sous-chemins). Pour autoriser une nouvelle page (ex. `/rapports`), ajoute `MAP_USER_PAGES=/,/carte,/rapports` et redéploie.
-
-**Important :** les chemins dans `MAP_USER_PAGES` doivent aussi être déclarés comme protégés dans le code. Dans **`lib/supabase/middleware.ts`**, le tableau **`PROTECTED_PATHS`** liste toutes les routes qui exigent une connexion. Par défaut il contient `["/"]`. Si tu ajoutes une page `/carte`, ajoute aussi `"/carte"` dans `PROTECTED_PATHS` pour que la connexion soit demandée, puis mets `MAP_USER_PAGES=/,/carte` pour que les users y aient accès.
+- La table **`accounts`** stocke les comptes (identifiant, mot de passe hashé, pages autorisées). Créer la table avec le SQL dans **`supabase-migration.sql`** (section `accounts`).
+- Sans Supabase, seuls les mots de passe admin/user (variables d’env) fonctionnent ; la création de comptes et la gestion par compte ne sont pas disponibles.
 
 ---
 
 ## Récap
 
-- **Admin** = un seul mot de passe, toutes les pages.
-- **User** = un autre mot de passe, seulement les pages listées dans `MAP_USER_PAGES`.
-- La page de login affiche un **seul champ mot de passe** : selon le mot de passe saisi, le backend attribue le rôle (admin ou user).
+- **Inscription** : /signup → identifiant + mot de passe (choisis par l’utilisateur).
+- **Connexion** : /login → identifiant (optionnel) + mot de passe. Si identifiant renseigné = connexion par compte ; sinon = admin ou user global.
+- **Admin** : mot de passe admin → accès à tout + page **/admin** pour définir, **par compte**, les pages autorisées.

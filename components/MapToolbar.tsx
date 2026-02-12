@@ -153,6 +153,13 @@ export function MapToolbar() {
         📐 Cartes
       </button>
       <a
+        href="/admin"
+        style={{ padding: "6px 10px", fontSize: 11, color: "var(--tl-color-text-2)", textDecoration: "none" }}
+        title="Gérer les accès des users"
+      >
+        Admin
+      </a>
+      <a
         href="/api/auth/logout"
         style={{ padding: "6px 10px", fontSize: 11, color: "var(--tl-color-text-2)", textDecoration: "none" }}
         title="Se déconnecter"

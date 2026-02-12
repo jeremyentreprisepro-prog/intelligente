@@ -10,6 +10,7 @@ function LoginForm() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [usePassword, setUsePassword] = useState(false);
+  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
 
   useEffect(() => {
@@ -21,7 +22,7 @@ function LoginForm() {
 
   const forbidden = searchParams.get("forbidden") === "1";
 
-  const handlePasswordSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
@@ -29,14 +30,14 @@ function LoginForm() {
       const res = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify(login.trim() ? { login: login.trim(), password } : { password }),
       });
       const data = await res.json();
       if (data.ok) {
         window.location.href = returnUrl;
         return;
       }
-      setError(data.error || "Mot de passe incorrect");
+      setError(data.error || "Identifiant ou mot de passe incorrect");
     } catch {
       setError("Erreur de connexion");
     } finally {
@@ -110,7 +111,7 @@ function LoginForm() {
 
         {usePassword && (
           <form
-            onSubmit={handlePasswordSubmit}
+            onSubmit={handleSubmit}
             style={{
               display: "flex",
               flexDirection: "column",
@@ -118,13 +119,32 @@ function LoginForm() {
               width: "100%",
             }}
           >
+            <label style={{ color: "#ccc", fontWeight: 500 }}>Identifiant (optionnel)</label>
+            <input
+              type="text"
+              value={login}
+              onChange={(e) => setLogin(e.target.value)}
+              placeholder="Ton identifiant de compte"
+              disabled={loading}
+              autoComplete="username"
+              style={{
+                padding: "12px 16px",
+                fontSize: 16,
+                borderRadius: 8,
+                border: "1px solid #444",
+                background: "#1a1a1a",
+                color: "#fff",
+                outline: "none",
+              }}
+            />
             <label style={{ color: "#ccc", fontWeight: 500 }}>Mot de passe</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Entrez le mot de passe"
+              placeholder={login ? "Mot de passe du compte" : "Mot de passe admin ou accès"}
               disabled={loading}
+              autoComplete="current-password"
               style={{
                 padding: "12px 16px",
                 fontSize: 16,
@@ -149,9 +169,14 @@ function LoginForm() {
                 cursor: loading ? "not-allowed" : "pointer",
               }}
             >
-              Accéder avec le mot de passe
+              {login ? "Connexion avec mon compte" : "Accéder"}
             </button>
           </form>
+        )}
+        {usePassword && (
+          <p style={{ margin: 0, fontSize: 14, color: "#999" }}>
+            Pas de compte ? <a href="/signup" style={{ color: "#3b82f6" }}>Créer un compte</a>
+          </p>
         )}
 
         {usePassword && (
